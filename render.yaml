@@ -16,7 +16,15 @@ services:
     name: inout-backend
     runtime: node
     plan: free
-    region: singapore # Closest Render region to Vietnam.
+    # Matched to the database's region, not to Vietnam.
+    #
+    # One request from the phone crosses the ocean once; the handful of queries
+    # that request makes cross it again each time. Co-locating the server with
+    # the database is worth far more than putting it near the user:
+    #   Ohio      — phone→server 250ms + 4×1ms   ≈ 254ms
+    #   Singapore — phone→server 50ms  + 4×250ms ≈ 1050ms
+    # Change this if the database ever moves.
+    region: ohio
 
     buildCommand: npm ci
     startCommand: npm start

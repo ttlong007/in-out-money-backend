@@ -7,7 +7,7 @@ import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { logger } from 'hono/logger';
 
-import { closeDatabase, sql } from '@/db/client';
+import { closeDatabase, describeConnection, sql } from '@/db/client';
 import { migrate } from '@/db/migrate';
 import { aiEnabled, corsOrigins, env } from '@/env';
 import { errorResponse } from '@/lib/errors';
@@ -69,6 +69,7 @@ async function main(): Promise<void> {
   const server = serve({ fetch: app.fetch, port: env.PORT }, (info) => {
     console.log(`\n  in-out-money backend`);
     console.log(`  http://localhost:${info.port}`);
+    console.log(`  db: ${describeConnection()}`);
     console.log(`  ai: ${aiEnabled ? 'configured' : 'disabled (offline parser only)'}\n`);
   });
 
