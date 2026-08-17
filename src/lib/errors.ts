@@ -18,6 +18,9 @@ export type ApiErrorCode =
   | 'token_revoked'
   | 'not_found'
   | 'rate_limited'
+  | 'reset_unavailable'
+  | 'reset_invalid'
+  | 'reset_expired'
   | 'ai_unavailable'
   | 'ai_failed'
   | 'internal_error';

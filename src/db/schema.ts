@@ -7,7 +7,7 @@
  * Add a new entry instead.
  */
 
-export const LATEST_VERSION = 1;
+export const LATEST_VERSION = 2;
 
 export type Migration = {
   version: number;
@@ -100,8 +100,37 @@ CREATE TABLE sync_records (
 CREATE INDEX idx_sync_pull ON sync_records(user_id, server_seq);
 `;
 
+/*
+ * Version 2 — password resets.
+ *
+ * A six-digit code rather than a link. A link has to survive being opened on a
+ * different device from the one running the app, which means universal links,
+ * an association file, and a failure mode where the address bar wins and the
+ * user stares at a website. A code is read on any device and typed into the app
+ * that is already open.
+ *
+ * The code is stored hashed for the same reason the refresh token is: a database
+ * dump must not be enough to take over an account. `attempts` is what makes six
+ * digits safe — a million combinations is nothing to a script, so the code dies
+ * after five wrong guesses rather than relying on its own length.
+ */
+const V2 = `
+CREATE TABLE password_resets (
+  id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id    UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  code_hash  TEXT NOT NULL,
+  expires_at TIMESTAMPTZ NOT NULL,
+  used_at    TIMESTAMPTZ,
+  attempts   INTEGER NOT NULL DEFAULT 0,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX idx_reset_user ON password_resets(user_id, created_at DESC);
+`;
+
 export const MIGRATIONS: Migration[] = [
   { version: 1, statements: splitStatements(V1) },
+  { version: 2, statements: splitStatements(V2) },
 ];
 
 /**

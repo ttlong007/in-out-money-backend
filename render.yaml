@@ -54,6 +54,13 @@ services:
       - key: ANTHROPIC_MODEL
         value: claude-opus-5
 
+      # Gmail app password for password-reset emails. Optional — recovery
+      # reports itself unavailable without them.
+      - key: SMTP_USER
+        sync: false
+      - key: SMTP_PASS
+        sync: false
+
       # Empty is correct: the only real client is a React Native app, which
       # sends no Origin header. Name an origin here only for a web build.
       - key: CORS_ORIGINS

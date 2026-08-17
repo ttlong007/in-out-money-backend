@@ -160,6 +160,38 @@ const aiOk =
   (ai.status === 502 && ai.body?.error?.code === 'ai_failed');
 check(`AI trả kết quả hợp lệ (HTTP ${ai.status})`, aiOk, JSON.stringify(ai.body));
 
+console.log('\n── ĐẶT LẠI MẬT KHẨU ──');
+// SMTP thường chưa cấu hình khi chạy local; cả hai kết quả đều hợp lệ.
+const forgot = await call('POST', '/v1/auth/forgot-password', { body: { email } });
+check(
+  `forgot-password (HTTP ${forgot.status})`,
+  forgot.status === 204 || (forgot.status === 503 && forgot.body?.error?.code === 'reset_unavailable'),
+  JSON.stringify(forgot.body),
+);
+
+// Email không tồn tại phải trả về y hệt email có thật — nếu khác nhau thì
+// endpoint này thành công cụ dò xem địa chỉ nào đã đăng ký.
+const forgotUnknown = await call('POST', '/v1/auth/forgot-password', {
+  body: { email: `khongtontai+${Date.now()}@example.com` },
+});
+check('không lộ email nào tồn tại', forgotUnknown.status === forgot.status,
+  `${forgot.status} vs ${forgotUnknown.status}`);
+
+const badCode = await call('POST', '/v1/auth/reset-password', {
+  body: { email, code: '000000', password: 'matkhaumoi12345' },
+});
+check('mã sai bị từ chối', badCode.status === 400, `HTTP ${badCode.status}`);
+
+const malformed = await call('POST', '/v1/auth/reset-password', {
+  body: { email, code: 'abc', password: 'matkhaumoi12345' },
+});
+check('mã sai định dạng → validation_error', malformed.body?.error?.code === 'validation_error');
+
+const shortPw = await call('POST', '/v1/auth/reset-password', {
+  body: { email, code: '000000', password: '123' },
+});
+check('mật khẩu mới quá ngắn bị chặn', shortPw.body?.error?.code === 'validation_error');
+
 console.log('\n── RATE LIMIT ──');
 // Loopback is exempt outside production, so a forged x-forwarded-for is what
 // puts this request on the same path a real internet caller takes.

@@ -2,11 +2,14 @@
  * Account routes: register, login, refresh, logout, me.
  */
 
+import { createHash, randomInt, timingSafeEqual } from 'node:crypto';
+
 import { Hono } from 'hono';
 import { z } from 'zod';
 
 import { sql } from '@/db/client';
 import { ApiError } from '@/lib/errors';
+import { mailEnabled, sendResetCode } from '@/lib/mailer';
 import { hashPassword, verifyPassword } from '@/lib/password';
 import {
   ACCESS_TTL,
@@ -164,4 +167,128 @@ authRoutes.get('/me', requireAuth, async (c) => {
   if (!user) throw ApiError.notFound('User no longer exists');
 
   return c.json({ user: publicUser(user) });
+});
+
+/* ------------------------------------------------------------------ *
+ * Password reset
+ * ------------------------------------------------------------------ */
+
+const RESET_TTL_MINUTES = 15;
+/** Six digits is only safe because guesses are capped; see the schema note. */
+const RESET_MAX_ATTEMPTS = 5;
+
+const ForgotBody = z.object({ email: z.string().email().max(320) });
+const ResetBody = z.object({
+  email: z.string().email().max(320),
+  code: z.string().regex(/^\d{6}$/, 'Mã gồm 6 chữ số'),
+  password: z.string().min(8).max(200),
+});
+
+/** SHA-256, not scrypt: this is a random six-digit value with a 15-minute life. */
+const hashCode = (code: string) => createHash('sha256').update(code).digest('base64url');
+
+function codesMatch(a: string, b: string): boolean {
+  const left = Buffer.from(a);
+  const right = Buffer.from(b);
+  if (left.length !== right.length) return false;
+  return timingSafeEqual(left, right);
+}
+
+/**
+ * Starts a reset.
+ *
+ * Always answers 204, whether or not the address has an account. Saying "no such
+ * user" would turn this endpoint into a way to test which emails are registered,
+ * and the person who genuinely owns the address learns nothing from the
+ * difference — they read their inbox either way.
+ */
+authRoutes.post('/forgot-password', async (c) => {
+  const parsed = ForgotBody.safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) throw ApiError.validation('Invalid payload', parsed.error.issues);
+
+  if (!mailEnabled) {
+    throw new ApiError('reset_unavailable', 503, 'Máy chủ chưa cấu hình gửi email');
+  }
+
+  const email = parsed.data.email.trim().toLowerCase();
+  const [user] = await sql<{ id: string; email: string }[]>`SELECT id, email FROM users WHERE email = ${email}`;
+
+  if (user) {
+    const code = String(randomInt(0, 1_000_000)).padStart(6, '0');
+    const expiresAt = new Date(Date.now() + RESET_TTL_MINUTES * 60_000);
+
+    // Any code already outstanding is retired. Two live codes would double an
+    // attacker's chances for no benefit to the person who asked twice.
+    await sql`UPDATE password_resets SET used_at = now() WHERE user_id = ${user.id} AND used_at IS NULL`;
+    await sql`
+      INSERT INTO password_resets (user_id, code_hash, expires_at)
+      VALUES (${user.id}, ${hashCode(code)}, ${expiresAt})
+    `;
+
+    try {
+      await sendResetCode(user.email, code, RESET_TTL_MINUTES);
+    } catch (error) {
+      // Logged, not surfaced: telling the caller that sending failed also tells
+      // them the address exists. The user retries; we investigate the log.
+      console.error('[auth] reset email failed:', error);
+    }
+  }
+
+  return c.body(null, 204);
+});
+
+/**
+ * Completes a reset.
+ *
+ * Succeeding also revokes every refresh token. Someone resetting a password has
+ * usually either forgotten it or suspects it is known to somebody else, and in
+ * both cases leaving other sessions signed in defeats the point.
+ */
+authRoutes.post('/reset-password', async (c) => {
+  const parsed = ResetBody.safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) throw ApiError.validation('Invalid payload', parsed.error.issues);
+
+  const email = parsed.data.email.trim().toLowerCase();
+  const invalid = new ApiError('reset_invalid', 400, 'Mã không đúng hoặc đã hết hạn');
+
+  const [row] = await sql<{
+    id: string;
+    user_id: string;
+    code_hash: string;
+    attempts: number;
+    expired: boolean;
+    used: boolean;
+  }[]>`
+    SELECT r.id, r.user_id, r.code_hash, r.attempts,
+           (r.expires_at <= now())    AS expired,
+           (r.used_at IS NOT NULL)    AS used
+      FROM password_resets r
+      JOIN users u ON u.id = r.user_id
+     WHERE u.email = ${email}
+     ORDER BY r.created_at DESC
+     LIMIT 1
+  `;
+
+  // One error for every failure mode. A caller must not be able to tell "no such
+  // account" from "wrong code" from "expired".
+  if (!row || row.used || row.expired) throw invalid;
+
+  if (row.attempts >= RESET_MAX_ATTEMPTS) {
+    throw new ApiError('reset_expired', 400, 'Mã đã nhập sai quá nhiều lần. Yêu cầu mã mới.');
+  }
+
+  if (!codesMatch(row.code_hash, hashCode(parsed.data.code))) {
+    await sql`UPDATE password_resets SET attempts = attempts + 1 WHERE id = ${row.id}`;
+    throw invalid;
+  }
+
+  const passwordHash = await hashPassword(parsed.data.password);
+
+  await sql.begin(async (tx) => {
+    await tx`UPDATE users SET password_hash = ${passwordHash}, updated_at = now() WHERE id = ${row.user_id}`;
+    await tx`UPDATE password_resets SET used_at = now() WHERE id = ${row.id}`;
+    await tx`UPDATE refresh_tokens SET revoked_at = now() WHERE user_id = ${row.user_id} AND revoked_at IS NULL`;
+  });
+
+  return c.body(null, 204);
 });

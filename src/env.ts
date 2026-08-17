@@ -21,6 +21,14 @@ const Schema = z.object({
   ANTHROPIC_API_KEY: z.string().optional(),
   ANTHROPIC_MODEL: z.string().default('claude-opus-5'),
 
+  /*
+   * Gmail app password, not the account password. Optional: without it the
+   * server runs normally and password recovery reports itself unavailable,
+   * the same shape as the AI key.
+   */
+  SMTP_USER: z.string().optional(),
+  SMTP_PASS: z.string().optional(),
+
   /**
    * Comma-separated origins allowed to call this API from a browser.
    *
