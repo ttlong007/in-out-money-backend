@@ -1,0 +1,26 @@
+services:
+  db:
+    image: postgres:17-alpine
+    container_name: inout-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: inout
+      POSTGRES_PASSWORD: inout
+      POSTGRES_DB: inout
+    ports:
+      # Deliberately far from 5432. A developer machine usually already has
+      # something on the default port — this one had another project on 5433 too —
+      # and the resulting "database exists but the tables are missing" confusion
+      # costs far more than an unusual port number does.
+      # Override with DB_PORT in .env if 55432 is taken as well.
+      - "${DB_PORT:-55432}:5432"
+    volumes:
+      - inout-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U inout -d inout"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  inout-pgdata:
