@@ -6,6 +6,8 @@
  * against a newer server, and the App Store makes "just update both" impossible.
  */
 
+import { createHash } from 'node:crypto';
+
 import { z } from 'zod';
 
 /**
@@ -43,6 +45,21 @@ export const SYNC_TABLES = [
 ] as const;
 
 export type SyncTable = (typeof SYNC_TABLES)[number];
+
+/**
+ * A short fingerprint of the accepted-table list, for `/health`.
+ *
+ * The client and the server have to agree on this list, and when they disagree
+ * the whole push fails validation — but nothing outside the process could tell
+ * which version of the list was actually running. Diagnosing a rejected push
+ * then means guessing whether a deploy has landed yet, which is how an already
+ * fixed and pushed whitelist looked identical to a broken one for several
+ * minutes.
+ *
+ * A digest rather than the names themselves: it answers "is the running code the
+ * code I pushed" without publishing the internal schema on an open endpoint.
+ */
+export const SYNC_CONTRACT = createHash('sha256').update(SYNC_TABLES.join(',')).digest('hex').slice(0, 8);
 
 /** Guards against one oversized row wedging a client's whole push forever. */
 const MAX_PAYLOAD_BYTES = 256 * 1024;

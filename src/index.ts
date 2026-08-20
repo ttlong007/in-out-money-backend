@@ -10,6 +10,7 @@ import { logger } from 'hono/logger';
 import { closeDatabase, describeConnection, sql } from '@/db/client';
 import { migrate } from '@/db/migrate';
 import { aiEnabled, corsOrigins, env } from '@/env';
+import { SYNC_CONTRACT } from '@/domain/sync';
 import { errorResponse } from '@/lib/errors';
 import { aiRoutes } from '@/routes/ai';
 import { authRoutes } from '@/routes/auth';
@@ -47,9 +48,9 @@ app.notFound((c) => c.json({ error: { code: 'not_found', message: 'No such route
 app.get('/health', async (c) => {
   try {
     await sql`SELECT 1`;
-    return c.json({ ok: true, database: 'up', ai: aiEnabled ? 'configured' : 'disabled' });
+    return c.json({ ok: true, database: 'up', ai: aiEnabled ? 'configured' : 'disabled', contract: SYNC_CONTRACT });
   } catch {
-    return c.json({ ok: false, database: 'down', ai: aiEnabled ? 'configured' : 'disabled' }, 503);
+    return c.json({ ok: false, database: 'down', ai: aiEnabled ? 'configured' : 'disabled', contract: SYNC_CONTRACT }, 503);
   }
 });
 

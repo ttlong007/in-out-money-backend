@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
-import { PushRequestSchema, SYNC_TABLES, dedupeByLatest, type SyncRecord } from './sync';
+import { PushRequestSchema, SYNC_CONTRACT, SYNC_TABLES, dedupeByLatest, type SyncRecord } from './sync';
 
 const record = (table: string, id: string, updatedAt: number): SyncRecord =>
   ({ table, id, payload: { id }, updatedAt, deletedAt: null }) as SyncRecord;
@@ -24,6 +24,24 @@ describe('SYNC_TABLES', () => {
       changes: [record('wallets', 'w1', 1), record('made_up', 'x', 1)],
     });
     assert.equal(parsed.success, false);
+  });
+});
+
+describe('SYNC_CONTRACT', () => {
+  it('is a short hex digest', () => {
+    assert.match(SYNC_CONTRACT, /^[0-9a-f]{8}$/);
+  });
+
+  it('changes when the accepted-table list changes', async () => {
+    // The whole point: a deployed server reports this on /health, so the list
+    // it is actually running can be compared against the list that was pushed.
+    // Recomputed here the same way rather than hardcoded, so adding a table is
+    // not a test failure — only a digest that ignores the list would be.
+    const { createHash } = await import('node:crypto');
+    const expected = createHash('sha256').update(SYNC_TABLES.join(',')).digest('hex').slice(0, 8);
+    const different = createHash('sha256').update([...SYNC_TABLES, 'extra'].join(',')).digest('hex').slice(0, 8);
+    assert.equal(SYNC_CONTRACT, expected);
+    assert.notEqual(SYNC_CONTRACT, different);
   });
 });
 
