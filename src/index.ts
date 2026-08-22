@@ -23,11 +23,17 @@ const app = new Hono<{ Variables: AuthVariables }>();
 app.use('*', logger());
 
 /*
- * A React Native app is not a browser and sends no Origin header, so CORS is
- * irrelevant to the real client — it exists only for a browser devtool or a web
- * build. In development anything is allowed; in production the allowlist is
- * empty unless CORS_ORIGINS names something, which is the safe default for an
- * API whose only legitimate caller is not a browser.
+ * There is now a browser client, and this comment used to say there was not.
+ *
+ * The phone app sends no Origin header at all, so CORS never applied to it and
+ * an empty allowlist was the right production default. The PWA changed that: it
+ * runs on its own origin and every request it makes is preflighted, so a login
+ * from the web fails with "no Access-Control-Allow-Origin" until CORS_ORIGINS
+ * names that origin — which looks from the app like a button that does nothing.
+ *
+ * Still an allowlist rather than `*`. Sync carries a Bearer token, and any
+ * origin being allowed to call this API is a different security posture than
+ * naming the one that should.
  */
 app.use(
   '*',
